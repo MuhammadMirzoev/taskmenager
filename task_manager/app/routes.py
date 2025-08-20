@@ -1,45 +1,13 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, render_template, redirect, url_for, flash
 from werkzeug.exceptions import BadRequest
 from .models import Task
 from .db import db
 
+# ---------------- API Blueprint ----------------
 task_bp = Blueprint("task_bp", __name__)
 
 @task_bp.post("/tasks")
 def create_task():
-    """
-    Create a task
-    ---
-    tags: [tasks]
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              title:
-                type: string
-              description:
-                type: string
-              status:
-                type: string
-            required: [title]
-    responses:
-      201:
-        description: Created
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                id: {type: integer}
-                title: {type: string}
-                description: {type: string}
-                status: {type: string}
-      400:
-        description: Bad Request
-    """
     data = request.get_json(silent=True) or {}
     title = data.get("title")
     if not title:
@@ -55,70 +23,16 @@ def create_task():
 
 @task_bp.get("/tasks/<int:task_id>")
 def get_task(task_id: int):
-    """
-    Get task by ID
-    ---
-    tags: [tasks]
-    parameters:
-      - in: path
-        name: task_id
-        schema: {type: integer}
-        required: true
-    responses:
-      200:
-        description: Task object
-      404:
-        description: Not Found
-    """
     task = Task.query.get_or_404(task_id)
     return jsonify(task.to_dict())
 
 @task_bp.get("/tasks")
 def list_tasks():
-    """
-    Get tasks list
-    ---
-    tags: [tasks]
-    responses:
-      200:
-        description: List of tasks
-        content:
-          application/json:
-            schema:
-              type: array
-              items:
-                type: object
-    """
     tasks = Task.query.order_by(Task.id.asc()).all()
     return jsonify([t.to_dict() for t in tasks])
 
 @task_bp.put("/tasks/<int:task_id>")
 def update_task(task_id: int):
-    """
-    Update a task
-    ---
-    tags: [tasks]
-    parameters:
-      - in: path
-        name: task_id
-        schema: {type: integer}
-        required: true
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              title: {type: string}
-              description: {type: string}
-              status: {type: string}
-    responses:
-      200:
-        description: Updated
-      404:
-        description: Not Found
-    """
     task = Task.query.get_or_404(task_id)
     data = request.get_json(silent=True) or {}
     if "title" in data:
@@ -134,22 +48,53 @@ def update_task(task_id: int):
 
 @task_bp.delete("/tasks/<int:task_id>")
 def delete_task(task_id: int):
-    """
-    Delete a task
-    ---
-    tags: [tasks]
-    parameters:
-      - in: path
-        name: task_id
-        schema: {type: integer}
-        required: true
-    responses:
-      200:
-        description: Deleted
-      404:
-        description: Not Found
-    """
     task = Task.query.get_or_404(task_id)
     db.session.delete(task)
     db.session.commit()
     return jsonify({"message": "Task deleted successfully"})
+
+
+# ---------------- Web Blueprint ----------------
+site_bp = Blueprint("site_bp", __name__)
+
+@site_bp.route("/", methods=["GET"])
+def index():
+    tasks = Task.query.order_by(Task.id.asc()).all()
+    return render_template("index.html", tasks=tasks)
+
+@site_bp.route("/create", methods=["POST"])
+def create():
+    title = request.form.get("title")
+    description = request.form.get("description", "")
+    if not title:
+        flash("Title is required!", "error")
+        return redirect(url_for("site_bp.index"))
+    task = Task(title=title, description=description)
+    db.session.add(task)
+    db.session.commit()
+    flash("Task created successfully!", "success")
+    return redirect(url_for("site_bp.index"))
+
+@site_bp.route("/update/<int:task_id>", methods=["POST"])
+def update(task_id):
+    task = Task.query.get_or_404(task_id)
+    title = request.form.get("title")
+    description = request.form.get("description", "")
+    status = request.form.get("status", "pending")
+    if not title:
+        flash("Title cannot be empty!", "error")
+        return redirect(url_for("site_bp.index"))
+    task.title = title
+    task.description = description
+    task.status = status
+    db.session.commit()
+    flash("Task updated successfully!", "success")
+    return redirect(url_for("site_bp.index"))
+
+@site_bp.route("/delete/<int:task_id>", methods=["POST"])
+def delete(task_id):
+    task = Task.query.get_or_404(task_id)
+    db.session.delete(task)
+    db.session.commit()
+    flash("Task deleted successfully!", "success")
+    return redirect(url_for("site_bp.index"))
